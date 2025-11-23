@@ -1,0 +1,77 @@
+ARA FULL BOT V2 – FEATURE SUMMARY
+
+1. DATA FETCH & NORMALIZATION
+- Fetches OHLCV data for all .JK tickers using Yahoo Finance.
+- Auto-fixes multi-index columns returned by yfinance.
+- Retries on DNS errors.
+- Ensures minimal historical length for valid indicators.
+
+2. TECHNICAL INDICATORS
+- MA20, MA50, MA200
+- RSI14
+- Bollinger Bands (upper/mid/lower)
+- OBV (On-Balance Volume)
+- VWAP
+- ATR(14)
+- RVOL (Relative Volume)
+- 1-week percentage change
+- MA20 slope acceleration
+
+3. SCREENER & SCORING (ARA / MULTI-BAGGER)
+- Strong weighting on RVOL >= 3.
+- Breakout above Bollinger upper band.
+- Bullish MA structure (MA20>MA50>MA200).
+- RSI momentum 55–80.
+- OBV rising.
+- Close > VWAP.
+- MA20 slope > 0.05.
+Signals:
+    STRONG_AURA
+    WATCHLIST
+    POTENTIAL
+    NONE
+
+4. ENTRY ENGINE
+- Automatic entry zone: entry_low & entry_high.
+- Automatic SL, TP1, TP2 based on ATR.
+- Uses support/resistance windows.
+
+5. MULTIPROCESSING ENGINE
+- Uses ProcessPoolExecutor.
+- Fast scanning of hundreds of tickers.
+- Optionally filters by minimum/maximum price.
+
+6. CANDLESTICK CHART GENERATOR
+- mplfinance OHLC candles.
+- Volume bars.
+- Horizontal markers: entry, SL, TP1, TP2.
+- Charts saved per signal.
+
+7. TELEGRAM NOTIFICATIONS
+- Sends chart + HTML formatted text.
+- Includes ticker, score, last price, entry/SL/TP, reasons.
+- Sends only when signal CHANGES compared to previous.
+- Sends summary message with top-ranked tickers.
+
+8. STATE MANAGEMENT
+- prev_signals.json stores last scan.
+- Detects signal transitions to avoid spam.
+
+9. OUTPUT STORAGE
+- results/ara_latest.json
+- results/ara_latest.csv
+- /mnt/data/ara_scan_results.csv
+- history/ara_YYYYMMDD.json
+- charts/*.png
+- ara_full_bot_v2.log
+
+10. AUTO-RUN MODE
+- Simply run: python main.py
+- No CLI arguments needed.
+- Full automation workflow.
+
+11. SAFETY / ERROR HANDLING
+- DNS failure retry.
+- Invalid/delisted ticker handling.
+- Multi-column data normalization.
+- Robust Yahoo Finance response guard.
