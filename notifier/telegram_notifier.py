@@ -90,15 +90,6 @@ class TelegramNotifier:
             return False
     
     def format_signal_message(self, result: Dict) -> str:
-        """
-        Format signal message with HTML
-        
-        Args:
-            result: Screener result
-        
-        Returns:
-            Formatted HTML message
-        """
         ticker = result.get('ticker', 'N/A')
         signal = result.get('signal', 'NONE')
         score = result.get('score', 0)
@@ -106,9 +97,7 @@ class TelegramNotifier:
         entry_levels = result.get('entry_levels', {})
         reasons = result.get('reasons', [])
         patterns = result.get('patterns', {})
-        ml_prob = result.get('ml_probability')
-        
-        # Signal emoji
+
         emoji_map = {
             'STRONG_AURA': '🔥',
             'WATCHLIST': '⭐',
@@ -116,53 +105,42 @@ class TelegramNotifier:
             'NONE': '❌',
         }
         emoji = emoji_map.get(signal, '📊')
-        
+
         confidence = result.get('confidence', 0)
         parameter_count = result.get('parameter_count', 0)
         data_quality = result.get('data_quality', {})
         quality_score = data_quality.get('quality_score', 1.0)
-        
-        message = f"""
-{emoji} <b>{ticker}</b> - {signal}
-━━━━━━━━━━━━━━━━━━━━
 
-💰 <b>Price:</b> {format_currency(price)}
-📊 <b>Score:</b> {score:.2%}
-🎯 <b>Confidence:</b> {confidence:.1%}
-✅ <b>Parameters:</b> {parameter_count}/7
-📈 <b>Data Quality:</b> {quality_score:.0%}
-"""
-        
-        if ml_prob:
-            message += f"🤖 <b>ML Probability:</b> {ml_prob:.2%}\n"
-        
-        # Data validation info
-        if data_quality.get('issues'):
-            message += f"\n⚠️ <b>Data Notes:</b>\n"
-            for issue in data_quality['issues'][:2]:  # Max 2 issues
-                message += f"• {issue}\n"
-        
-        message += "\n📈 <b>Entry Levels:</b>\n"
+        message = f"{emoji} {ticker} - {signal}\n"
+        message += "━━━━━━━━━━━━━━━━━━━━\n\n"
+        message += f"💰 Price: {format_currency(price)}\n"
+        message += f"📊 Score: {score:.2%}\n"
+        message += f"🎯 Confidence: {confidence:.1%}\n"
+        message += f"✅ Parameters: {parameter_count}/7\n"
+        message += f"📈 Data Quality: {quality_score:.0%}\n\n"
+
+        message += "📈 Entry Levels:\n"
         if entry_levels:
             message += f"Entry: {format_currency(entry_levels.get('entry_low', 0))} - {format_currency(entry_levels.get('entry_high', 0))}\n"
             message += f"SL: {format_currency(entry_levels.get('stop_loss', 0))}\n"
             message += f"TP1: {format_currency(entry_levels.get('take_profit_1', 0))} (R:R {entry_levels.get('reward_risk_1', 0):.2f})\n"
-            message += f"TP2: {format_currency(entry_levels.get('take_profit_2', 0))} (R:R {entry_levels.get('reward_risk_2', 0):.2f})\n"
-        
+            message += f"TP2: {format_currency(entry_levels.get('take_profit_2', 0))} (R:R {entry_levels.get('reward_risk_2', 0):.2f})\n\n"
+
         if reasons:
-            message += "\n✅ <b>Reasons:</b>\n"
+            message += "✅ Reasons:\n"
             for reason in reasons:
                 message += f"• {reason}\n"
-        
-        # Patterns
+            message += "\n"
+
         detected_patterns = [k for k, v in patterns.items() if v and (isinstance(v, bool) or (isinstance(v, dict) and v.get('detected')))]
         if detected_patterns:
-            message += "\n🎯 <b>Patterns:</b>\n"
+            message += "🎯 Patterns:\n"
             for pattern in detected_patterns:
                 message += f"• {pattern.replace('_', ' ').title()}\n"
-        
-        message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        
+            message += "\n"
+
+        message += f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
         return message
     
     def format_summary_message(self, results: List[Dict], top_n: int = 10) -> str:

@@ -27,4 +27,6 @@ requests>=2.31.0
 
 # Utilities
 python-dotenv>=1.0.0  # Required for .env file support
+schedule>=1.2.0  # For auto-scheduler
+pytz>=2023.3  # For timezone support
 

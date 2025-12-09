@@ -26,19 +26,40 @@ class DataFetcher:
         Args:
             ticker: Ticker symbol
             use_cache: Whether to use cache
-            force_refresh: Force refresh even if cache is valid
+            force_refresh: Force refresh even if cache is valid (for fresh data)
         
         Returns:
             DataFrame with OHLCV data or None
         """
-        # Try cache first (warm fetch)
+        from datetime import datetime, timezone
+        
+        # Check if we need fresh data (today's data)
+        need_fresh = force_refresh
+        
+        # If not forcing refresh, check if cache has today's data
         if use_cache and not force_refresh:
             cached_data = self.cache_manager.warm_fetch(ticker)
             if cached_data is not None:
-                logger.debug(f"Using cached data for {ticker}")
-                return cached_data
+                # Check if cache has today's data
+                if len(cached_data) > 0:
+                    last_date = cached_data.index[-1]
+                    today = datetime.now(timezone.utc).date()
+                    
+                    # Convert last_date to date if it's datetime
+                    if hasattr(last_date, 'date'):
+                        last_date_only = last_date.date()
+                    else:
+                        last_date_only = last_date
+                    
+                    # If cache has today's data, use it
+                    if last_date_only >= today:
+                        logger.debug(f"Using cached data for {ticker} (has today's data)")
+                        return cached_data
+                    else:
+                        logger.debug(f"Cache outdated for {ticker}, fetching fresh data")
+                        need_fresh = True
         
-        # Try Yahoo Finance
+        # Fetch fresh data
         df = self.yahoo_fetcher.fetch_data(ticker)
         
         if df is None:
@@ -46,9 +67,23 @@ class DataFetcher:
             logger.info(f"Yahoo Finance failed for {ticker}, trying fallback...")
             df = self.fallback_fetcher.fetch(ticker)
         
-        if df is not None and use_cache:
-            # Store in cache
-            self.cache_manager.store_data(ticker, df)
+        if df is not None:
+            # Validate data freshness
+            if len(df) > 0:
+                last_date = df.index[-1]
+                today = datetime.now(timezone.utc).date()
+                
+                if hasattr(last_date, 'date'):
+                    last_date_only = last_date.date()
+                else:
+                    last_date_only = last_date
+                
+                if last_date_only < today:
+                    logger.warning(f"Data for {ticker} may not include today: last date {last_date_only}, today {today}")
+            
+            if use_cache:
+                # Store in cache
+                self.cache_manager.store_data(ticker, df)
         
         return df
     

@@ -68,7 +68,7 @@ class DataNormalizer:
             
             # Fill missing values (forward fill for OHLC, 0 for Volume)
             df['Volume'] = df['Volume'].fillna(0)
-            df[['Open', 'High', 'Low', 'Close']] = df[['Open', 'High', 'Low', 'Close']].fillna(method='ffill')
+            df[['Open', 'High', 'Low', 'Close']] = df[['Open', 'High', 'Low', 'Close']].ffill()
             
             # Remove rows with all NaN
             df.dropna(how='all', inplace=True)

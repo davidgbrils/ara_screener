@@ -75,6 +75,25 @@ SCREENER_CONFIG = {
     "MIN_PRICE": 50,  # Minimum price in IDR (optional filter)
     "MAX_PRICE": 50000,  # Maximum price in IDR (optional filter)
     "MIN_VOLUME": 1000000,  # Minimum daily volume
+    "ATR_PCT_RANGE": (0.015, 0.06),
+}
+
+# Relaxed screening adjustments (optional)
+RELAXED_SCREENING = {
+    "SCREENER_OVERRIDES": {
+        "RVOL_THRESHOLD": 2.5,
+        "RSI_MIN": 50,
+        "RSI_MAX": 85,
+        "MA_SLOPE_MIN": 0.03,
+        "MIN_PRICE": 20,
+        "MIN_VOLUME": 700000,
+    },
+    "SIGNAL_THRESHOLDS": {
+        "STRONG_AURA": 0.70,
+        "WATCHLIST": 0.55,
+        "POTENTIAL": 0.40,
+    },
+    "MIN_CONFIDENCE": 0.55,
 }
 
 # Scoring Weights
@@ -168,6 +187,11 @@ ML_CONFIG = {
         "obv_divergence",
         "vwap_distance",
         "rsi_zone",
+        "macd_hist",
+        "atr_pct",
+        "ma200_slope",
+        "dist_52w_high",
+        "bb_width",
     ],
     "RETRAIN_INTERVAL_DAYS": 30,
 }
@@ -190,6 +214,16 @@ PATTERN_CONFIG = {
     "POCKET_PIVOT": True,
     "GAP_UP_DETECTION": True,
     "REACCUMULATION_BASE": True,
+    "VOLUME_DRY_UP": True,
+    "MONEY_FLOW": True,
+    "MARKET_REGIME": True,
+}
+
+# Fundamentals settings (optional)
+FUNDAMENTALS_CONFIG = {
+    "ENABLED": False,
+    "SOURCE": "CSV",
+    "CSV_PATH": DATA_DIR / "fundamentals.csv",
 }
 
 # Fallback API Settings

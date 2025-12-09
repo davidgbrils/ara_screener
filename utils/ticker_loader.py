@@ -12,46 +12,32 @@ class TickerLoader:
     """Load tickers from text file with flexible format support"""
     
     def __init__(self, ticker_file: Path = None):
-        """
-        Initialize ticker loader
-        
-        Args:
-            ticker_file: Path to ticker file (defaults to ticker.txt in root)
-        """
         self.ticker_file = ticker_file or BASE_DIR / "ticker.txt"
+        self.alt_ticker_file = BASE_DIR / "tickers.txt"
         self.suffix = IDX_TICKER_SUFFIX
     
     def load_tickers(self) -> List[str]:
-        """
-        Load tickers from file
-        
-        Supports multiple formats:
-        - One ticker per line: BBCA
-        - Comma-separated: BBCA, BBRI, BMRI
-        - Space-separated: BBCA BBRI BMRI
-        - With or without .JK suffix
-        - Comments with # prefix
-        - Empty lines ignored
-        
-        Returns:
-            List of normalized ticker symbols
-        """
-        if not self.ticker_file.exists():
+        if not self.ticker_file.exists() and not self.alt_ticker_file.exists():
             logger.warning(f"Ticker file not found: {self.ticker_file}")
             logger.info("Creating default ticker.txt file...")
             self._create_default_file()
             return []
         
         try:
-            with open(self.ticker_file, 'r', encoding='utf-8') as f:
-                content = f.read()
+            contents = []
+            if self.ticker_file.exists():
+                with open(self.ticker_file, 'r', encoding='utf-8') as f:
+                    contents.append(f.read())
+            if self.alt_ticker_file.exists():
+                with open(self.alt_ticker_file, 'r', encoding='utf-8') as f:
+                    contents.append(f.read())
             
-            tickers = self._parse_content(content)
+            tickers = []
+            for content in contents:
+                tickers.extend(self._parse_content(content))
             
-            # Normalize tickers
             normalized = [self._normalize_ticker(t) for t in tickers]
             
-            # Remove duplicates while preserving order
             seen = set()
             unique_tickers = []
             for ticker in normalized:
@@ -59,12 +45,12 @@ class TickerLoader:
                     seen.add(ticker)
                     unique_tickers.append(ticker)
             
-            logger.info(f"Loaded {len(unique_tickers)} unique tickers from {self.ticker_file}")
+            logger.info(f"Loaded {len(unique_tickers)} unique tickers from files")
             
             return unique_tickers
             
         except Exception as e:
-            logger.error(f"Error loading tickers from {self.ticker_file}: {e}")
+            logger.error(f"Error loading tickers from files: {e}")
             return []
     
     def _parse_content(self, content: str) -> List[str]:

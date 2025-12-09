@@ -39,7 +39,7 @@ class CheckpointManager:
             }
             
             with open(self.checkpoint_file, 'w') as f:
-                json.dump(checkpoint_data, f, indent=2)
+                json.dump(checkpoint_data, f, indent=2, default=str)
             
             logger.debug(f"Checkpoint saved: {len(processed_tickers)} tickers")
             

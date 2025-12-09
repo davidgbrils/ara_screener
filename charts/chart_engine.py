@@ -115,6 +115,24 @@ class ChartEngine:
                 addplot.append(
                     mpf.make_addplot(df['BB_Lower'], color='gray', width=1, alpha=0.5)
                 )
+
+            # VWAP line
+            if 'VWAP' in df.columns:
+                addplot.append(
+                    mpf.make_addplot(df['VWAP'], color='#6A5ACD', width=1, alpha=0.7)
+                )
+
+            # 52W High and 20D High lines (last value as horizontal reference)
+            if 'HIGH_52W' in df.columns and not df['HIGH_52W'].isna().all():
+                h52 = df['HIGH_52W'].iloc[-1]
+                addplot.append(
+                    mpf.make_addplot([h52] * len(df), color='#00CED1', linestyle=':', width=1, alpha=0.8)
+                )
+            if 'HIGH_20D' in df.columns and not df['HIGH_20D'].isna().all():
+                h20 = df['HIGH_20D'].iloc[-1]
+                addplot.append(
+                    mpf.make_addplot([h20] * len(df), color='#FFD700', linestyle=':', width=1, alpha=0.8)
+                )
         
         # Entry levels (horizontal lines)
         if entry_levels:

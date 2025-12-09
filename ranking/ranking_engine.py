@@ -14,7 +14,7 @@ class RankingEngine:
         """Initialize ranking engine"""
         self.ml_scorer = MLScorer()
     
-    def rank(self, results: List[Dict], top_n: int = None, min_confidence: float = 0.7) -> List[Dict]:
+    def rank(self, results: List[Dict], top_n: int = None, min_confidence: float = 0.4) -> List[Dict]:
         """
         Rank results by score, confidence, and ML probability
         
@@ -55,13 +55,28 @@ class RankingEngine:
         filtered = []
         for r in results:
             if r.get('signal') != 'NONE':
-                # Check data quality
+                # Check data quality (handle both dict and string)
                 data_quality = r.get('data_quality', {})
-                if data_quality.get('is_valid', True):
+                if isinstance(data_quality, str):
+                    # Try to parse string representation
+                    try:
+                        import ast
+                        data_quality = ast.literal_eval(data_quality)
+                    except:
+                        # If parsing fails, assume valid
+                        data_quality = {'is_valid': True}
+                
+                is_valid = data_quality.get('is_valid', True) if isinstance(data_quality, dict) else True
+                
+                if is_valid:
                     # Check confidence
                     confidence = r.get('confidence', 0)
                     if confidence >= min_confidence:
                         filtered.append(r)
+                    else:
+                        logger.debug(f"Filtered out {r.get('ticker')}: confidence {confidence:.3f} < {min_confidence}")
+                else:
+                    logger.debug(f"Filtered out {r.get('ticker')}: data quality invalid")
         
         # Sort by combined score and confidence
         sorted_results = sorted(
@@ -73,8 +88,12 @@ class RankingEngine:
             reverse=True
         )
         
+        logger.info(f"Ranking: {len(results)} total results, {len(filtered)} passed filters (confidence >= {min_confidence})")
+        
         if top_n:
-            return sorted_results[:top_n]
+            result = sorted_results[:top_n]
+            logger.info(f"Returning top {len(result)} results")
+            return result
         
         return sorted_results
     

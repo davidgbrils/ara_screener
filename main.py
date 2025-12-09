@@ -44,21 +44,37 @@ class ARABot:
         self.state_manager = StateManager()
         self.processing_engine = MultiprocessingEngine()
     
-    def process_ticker(self, ticker: str) -> Dict:
+    def process_ticker(self, ticker: str, force_refresh: bool = False) -> Dict:
         """
         Process single ticker through full pipeline
         
         Args:
             ticker: Ticker symbol
+            force_refresh: Force refresh data (get today's data)
         
         Returns:
             Screener result or None
         """
         try:
-            # Fetch data
-            df = self.data_fetcher.fetch(ticker)
+            # Fetch data (with force refresh if needed)
+            df = self.data_fetcher.fetch(ticker, force_refresh=force_refresh)
             if df is None:
                 return None
+            
+            # Validate data freshness
+            if len(df) > 0:
+                from datetime import datetime, timezone
+                last_date = df.index[-1]
+                today = datetime.now(timezone.utc).date()
+                
+                if hasattr(last_date, 'date'):
+                    last_date_only = last_date.date()
+                else:
+                    last_date_only = last_date
+                
+                # Log if data is not from today
+                if last_date_only < today:
+                    logger.debug(f"{ticker}: Using data from {last_date_only} (today: {today})")
             
             # Normalize
             df = self.normalizer.normalize(df)
@@ -125,6 +141,10 @@ class ARABot:
         save_intermediate = save_intermediate or MULTIPROCESSING_CONFIG.get("SAVE_INTERMEDIATE_RESULTS", False)
         checkpoint_manager = CheckpointManager()
         
+        # If force refresh, don't use cache
+        if not use_cache:
+            logger.info("Force refresh enabled: Will fetch fresh data for all tickers")
+        
         # Handle resume
         if resume and MULTIPROCESSING_CONFIG.get("RESUME_CAPABILITY", False):
             processed_tickers, existing_results = checkpoint_manager.load_checkpoint()
@@ -143,6 +163,7 @@ class ARABot:
                 checkpoint_manager.clear_checkpoint()
         
         logger.info(f"Starting scan of {len(tickers)} tickers...")
+        logger.info(f"Using cache: {use_cache}, Force refresh: {not use_cache}")
         
         # Progress callback for intermediate saving
         processed_tickers_set = set()
@@ -167,17 +188,33 @@ class ARABot:
                 except Exception as e:
                     logger.error(f"Error saving intermediate results: {e}")
         
+        # Create wrapper function for process_ticker with force_refresh
+        def process_ticker_wrapper(ticker: str):
+            return self.process_ticker(ticker, force_refresh=not use_cache)
+        
         # Process in parallel
         new_results = self.processing_engine.process_tickers(
             tickers,
-            self.process_ticker,
+            process_ticker_wrapper,
             use_threads=True,  # Use threads for I/O bound operations
             show_progress=True,
             progress_callback=progress_callback if save_intermediate else None
         )
         
-        # Combine results
-        results.extend([r for r in new_results if r is not None])
+        # Combine results - filter out None and ensure all have required fields
+        for r in new_results:
+            if r is not None and r.get('ticker'):
+                # Ensure confidence exists
+                if 'confidence' not in r:
+                    r['confidence'] = 0.0
+                # Ensure data_quality is dict
+                if 'data_quality' in r and isinstance(r['data_quality'], str):
+                    try:
+                        import ast
+                        r['data_quality'] = ast.literal_eval(r['data_quality'])
+                    except:
+                        r['data_quality'] = {'is_valid': True, 'issues': [], 'quality_score': 1.0}
+                results.append(r)
         
         # Final save
         if save_intermediate:
@@ -186,8 +223,18 @@ class ARABot:
         # Clear checkpoint on success
         checkpoint_manager.clear_checkpoint()
         
-        # Rank results - only top 10 with high confidence
-        ranked_results = self.ranker.rank(results, top_n=10, min_confidence=0.65)
+        # Log before ranking
+        signals_before = [r for r in results if r and r.get('signal') != 'NONE']
+        logger.info(f"Before ranking: {len(signals_before)} signals found from {len(results)} processed")
+        
+        if signals_before:
+            # Show confidence distribution
+            confidences = [r.get('confidence', 0) for r in signals_before if r.get('confidence')]
+            if confidences:
+                logger.info(f"Confidence range: {min(confidences):.3f} - {max(confidences):.3f}, mean: {sum(confidences)/len(confidences):.3f}")
+        
+        # Rank results - top 5 with high confidence
+        ranked_results = self.ranker.rank(results, top_n=5, min_confidence=0.40)
         
         logger.info(f"Scan complete: {len(ranked_results)} high-confidence signals found from {len(results)} processed")
         
@@ -254,12 +301,19 @@ class ARABot:
             return
         
         try:
-            # Only send top 10 with high confidence
-            top_10 = results[:10]
-            
+            # Only send top 5 with high confidence
+            top_10 = results[:5]
+
+            # Fallback: if no high-confidence results, send top 5 by score where signal != NONE
             if not top_10:
-                logger.info("No high-confidence signals to send")
-                return
+                fallback = [r for r in results if r and r.get('signal') != 'NONE']
+                fallback_sorted = sorted(fallback, key=lambda x: x.get('score', 0), reverse=True)
+                top_10 = fallback_sorted[:5]
+                if not top_10:
+                    logger.info("No signals to send (including fallback)")
+                    return
+                else:
+                    logger.info(f"Using fallback signals (score-based): {len(top_10)}")
             
             # Generate charts for top 10 if not already generated
             logger.info(f"Generating charts for top {len(top_10)} signals...")
@@ -299,15 +353,15 @@ class ARABot:
                 # Send signal with chart
                 success = self.notifier.send_signal(result, chart_path)
                 if success:
-                    logger.info(f"✅ Sent signal {i}/10: {result.get('ticker')} (Confidence: {result.get('confidence', 0):.1%})")
+                    logger.info(f"[SENT] Signal {i}/10: {result.get('ticker')} (Confidence: {result.get('confidence', 0):.1%})")
                 else:
-                    logger.warning(f"❌ Failed to send signal: {result.get('ticker')}")
+                    logger.warning(f"[FAIL] Failed to send signal: {result.get('ticker')}")
             
             # Send summary message
             if TELEGRAM_CONFIG.get("SEND_SUMMARY", True):
-                self.notifier.send_summary(top_10, top_n=10)
+                self.notifier.send_summary(top_10, top_n=5)
             
-            logger.info(f"✅ Notifications sent: {len(top_10)} top signals with charts")
+            logger.info(f"[DONE] Notifications sent: {len(top_10)} top signals with charts")
             
         except Exception as e:
             logger.error(f"Error sending notifications: {e}")
@@ -315,7 +369,8 @@ class ARABot:
     def run(
         self, 
         tickers: List[str] = None,
-        resume: bool = False
+        resume: bool = False,
+        force_refresh: bool = False
     ):
         """
         Run full scan workflow
@@ -323,13 +378,21 @@ class ARABot:
         Args:
             tickers: Optional list of tickers to scan
             resume: Resume from checkpoint if available
+            force_refresh: Force refresh data (get today's data)
         """
+        from datetime import datetime
+        
         logger.info("=" * 50)
         logger.info("ARA BOT V2 - Starting Full Scan")
+        logger.info(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"Force Refresh: {force_refresh}")
         logger.info("=" * 50)
         
-        # Scan
-        results = self.scan_all(tickers, resume=resume)
+        # Scan with fresh data if requested
+        if force_refresh:
+            results = self.scan_all(tickers, resume=resume, use_cache=False)
+        else:
+            results = self.scan_all(tickers, resume=resume)
         
         # Save results
         self.save_results(results)
@@ -376,9 +439,9 @@ def main():
     
     # Print top 10
     print("\n" + "=" * 50)
-    print("TOP 10 RESULTS")
+    print("TOP 5 RESULTS")
     print("=" * 50)
-    for i, result in enumerate(results[:10], 1):
+    for i, result in enumerate(results[:5], 1):
         print(f"{i}. {result.get('ticker')} - {result.get('signal')} ({result.get('score', 0):.1%})")
 
 if __name__ == "__main__":
