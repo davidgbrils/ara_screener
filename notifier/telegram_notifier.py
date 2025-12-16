@@ -247,4 +247,156 @@ class TelegramNotifier:
         top_n = top_n or TELEGRAM_CONFIG["TOP_N_SUMMARY"]
         message = self.format_summary_message(results, top_n)
         return self.send_message(message)
+    
+    def format_technical_analysis(self, analysis) -> str:
+        """
+        Format multi-timeframe technical analysis for Telegram
+        
+        Args:
+            analysis: MultiTFAnalysis object
+        
+        Returns:
+            Formatted HTML message
+        """
+        ticker = analysis.ticker
+        
+        # Header
+        message = f"📊 <b>TECHNICAL ANALYSIS: {ticker}</b>\n"
+        message += "━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        # Multi-TF Summary
+        message += "🔍 <b>MULTI-TIMEFRAME SUMMARY</b>\n"
+        
+        tf_order = ["1D", "4h", "1h", "15m", "5m"]
+        for tf in tf_order:
+            if tf in analysis.timeframes:
+                tf_analysis = analysis.timeframes[tf]
+                message += f"├─ {tf}: {tf_analysis.trend_emoji} {tf_analysis.trend}"
+                message += f" ({tf_analysis.summary[:25]}...)\n" if len(tf_analysis.summary) > 25 else f" ({tf_analysis.summary})\n"
+        
+        message += "\n"
+        
+        # Primary Analysis
+        trend_emoji = {"BULLISH": "🟢", "BEARISH": "🔴", "SIDEWAYS": "🟡"}.get(analysis.primary_trend, "⚪")
+        conf_emoji = {"HIGH": "🎯", "MEDIUM": "⚡", "LOW": "⚠️"}.get(analysis.confluence, "❓")
+        
+        message += f"📈 <b>PRIMARY TREND:</b> {trend_emoji} {analysis.primary_trend}\n"
+        message += f"🎯 <b>TRADING BIAS:</b> {analysis.bias}\n"
+        message += f"📊 <b>CONFLUENCE:</b> {conf_emoji} {analysis.confluence} ({analysis.confidence:.0f}%)\n\n"
+        
+        # Key Levels
+        message += "🔒 <b>KEY LEVELS</b>\n"
+        message += f"├─ Resistance: {format_currency(analysis.key_resistance)}\n"
+        message += f"├─ <b>Current:</b> {format_currency(analysis.current_price)}\n"
+        message += f"└─ Support: {format_currency(analysis.key_support)}\n\n"
+        
+        # Trading Plan (if available)
+        if analysis.trading_plan and analysis.bias != "AVOID":
+            plan = analysis.trading_plan
+            message += "📝 <b>TRADING PLAN</b>\n"
+            message += f"🔵 <b>Entry:</b> {format_currency(plan.entry_low)} - {format_currency(plan.entry_high)}\n"
+            message += f"🟢 <b>TP1:</b> {format_currency(plan.tp1)} (+{plan.tp1_pct:.1f}%)\n"
+            message += f"🟢 <b>TP2:</b> {format_currency(plan.tp2)} (+{plan.tp2_pct:.1f}%)\n"
+            message += f"🔴 <b>SL:</b> {format_currency(plan.sl)} (-{plan.sl_pct:.1f}%)\n"
+            message += f"📈 <b>R:R:</b> 1:{plan.risk_reward:.1f}\n\n"
+        
+        # Warnings
+        if analysis.warnings:
+            message += "⚠️ <b>WARNINGS</b>\n"
+            for warning in analysis.warnings:
+                message += f"• {warning}\n"
+            message += "\n"
+        
+        # Footer
+        message += f"⏰ <i>Analyzed at {analysis.timestamp.strftime('%H:%M:%S')}</i>\n"
+        message += "⚠️ <i>This is not financial advice. Trade at your own risk.</i>"
+        
+        return message
+    
+    def send_technical_analysis(self, analysis, chart_path: Optional[Path] = None) -> bool:
+        """
+        Send technical analysis notification with chart
+        
+        Args:
+            analysis: MultiTFAnalysis object
+            chart_path: Path to chart image
+        
+        Returns:
+            True if successful
+        """
+        message = self.format_technical_analysis(analysis)
+        
+        if chart_path and chart_path.exists():
+            return self.send_photo(chart_path, message)
+        else:
+            return self.send_message(message)
+    
+    def format_recommendation(self, recommendation: Dict) -> str:
+        """
+        Format capital-based recommendation for Telegram
+        
+        Args:
+            recommendation: Recommendation dictionary
+        
+        Returns:
+            Formatted HTML message
+        """
+        ticker = recommendation.get('ticker', 'N/A')
+        mode = recommendation.get('mode', 'N/A')
+        action = recommendation.get('action', 'N/A')
+        risk = recommendation.get('risk', 'N/A')
+        entry = recommendation.get('entry', 0)
+        tp1 = recommendation.get('tp1', 0)
+        tp1_pct = recommendation.get('tp1_pct', 0)
+        tp2 = recommendation.get('tp2', 0)
+        tp2_pct = recommendation.get('tp2_pct', 0)
+        sl = recommendation.get('sl', 0)
+        sl_pct = recommendation.get('sl_pct', 0)
+        lot = recommendation.get('lot', 0)
+        value = recommendation.get('value', 0)
+        rr = recommendation.get('risk_reward', 0)
+        bandar_timing = recommendation.get('bandar_timing', '')
+        
+        # Action emoji
+        action_emoji = {"BUY": "🟢", "SCALP ONLY": "⚡", "AVOID": "❌"}.get(action, "📊")
+        
+        # Risk color
+        risk_emoji = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴", "ACTIVE_GORENGAN": "⚠️"}.get(risk, "⚪")
+        
+        message = f"🚀 <b>{ticker}</b> - {mode.upper()}\n"
+        message += "━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        message += f"📊 <b>Action:</b> {action_emoji} {action}\n"
+        message += f"⚠️ <b>Risk Level:</b> {risk_emoji} {risk}\n\n"
+        
+        message += f"🔵 <b>Entry:</b> {format_currency(entry)}\n"
+        message += f"🟢 <b>TP1:</b> {format_currency(tp1)} (+{tp1_pct:.1f}%)\n"
+        message += f"🟢 <b>TP2:</b> {format_currency(tp2)} (+{tp2_pct:.1f}%)\n"
+        message += f"🔴 <b>SL:</b> {format_currency(sl)} (-{sl_pct:.1f}%)\n\n"
+        
+        message += f"💰 <b>Position:</b> {lot} lot = {format_currency(value)}\n"
+        message += f"📈 <b>R:R:</b> 1:{rr:.1f}\n"
+        
+        if bandar_timing:
+            message += f"🎯 <b>Timing:</b> {bandar_timing}\n"
+        
+        return message
+    
+    def send_recommendation(self, recommendation: Dict, chart_path: Optional[Path] = None) -> bool:
+        """
+        Send recommendation notification
+        
+        Args:
+            recommendation: Recommendation dictionary
+            chart_path: Path to chart image
+        
+        Returns:
+            True if successful
+        """
+        message = self.format_recommendation(recommendation)
+        
+        if chart_path and chart_path.exists():
+            return self.send_photo(chart_path, message)
+        else:
+            return self.send_message(message)
 

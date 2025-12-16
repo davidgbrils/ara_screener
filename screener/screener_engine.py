@@ -135,8 +135,16 @@ class ScreenerEngine:
         from .mode_screener import ModeScreener
         self.mode_screener = ModeScreener()
         
+        # Initialize Invezgo client for real-time data
+        try:
+            from api.invezgo_client import get_invezgo_client
+            self.invezgo = get_invezgo_client()
+        except Exception:
+            self.invezgo = None
+        
         # Cache for fundamentals to avoid repeated API calls
         self._fundamentals_cache = {}
+        self._orderbook_cache = {}
     
     def screen(self, df: pd.DataFrame, ticker: str) -> Dict:
         """
@@ -222,6 +230,9 @@ class ScreenerEngine:
                 logger.warning(f"Mode screening failed for {ticker}: {mode_err}")
                 all_modes_dict = {'best_mode': 'NONE', 'error': str(mode_err)}
             
+            # Get Invezgo real-time data (order book, intraday) if available
+            invezgo_data = self._get_invezgo_data(ticker)
+            
             # Convert ScreeningResult to dictionary for compatibility
             result = ScreeningResult(
                 ticker=ticker,
@@ -242,6 +253,7 @@ class ScreenerEngine:
                     'gorengan': gorengan.__dict__,
                     'enhanced_gorengan': enhanced_gorengan.__dict__,
                     'all_modes': all_modes_dict,
+                    'invezgo': invezgo_data,
                 },
                 fundamentals=fundamentals or {}
             )
@@ -262,6 +274,69 @@ class ScreenerEngine:
             return False
         required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
         return all(col in df.columns for col in required_columns)
+    
+    def _get_invezgo_data(self, ticker: str) -> Dict:
+        """
+        Get real-time data from Invezgo API
+        
+        Includes order book, intraday data, and unusual activity detection
+        
+        Args:
+            ticker: Stock ticker
+        
+        Returns:
+            Dict with Invezgo data or empty dict if unavailable
+        """
+        if not self.invezgo or not self.invezgo.enabled:
+            return {'enabled': False}
+        
+        try:
+            # Remove .JK suffix
+            code = ticker.replace(".JK", "").upper()
+            
+            # Check cache first
+            if code in self._orderbook_cache:
+                cached = self._orderbook_cache[code]
+                # Cache valid for 5 minutes
+                from datetime import datetime, timedelta
+                if datetime.now() - cached['timestamp'] < timedelta(minutes=5):
+                    return cached['data']
+            
+            result = {
+                'enabled': True,
+                'order_book': None,
+                'order_book_analysis': None,
+                'intraday': None,
+                'unusual_activity': None
+            }
+            
+            # Get order book and analysis
+            ob_analysis = self.invezgo.analyze_order_book(code)
+            if ob_analysis:
+                result['order_book_analysis'] = ob_analysis
+            
+            # Get intraday data
+            intraday = self.invezgo.get_intraday_data(code)
+            if intraday:
+                result['intraday'] = intraday
+            
+            # Detect unusual activity
+            unusual = self.invezgo.detect_unusual_activity(code)
+            if unusual:
+                result['unusual_activity'] = unusual
+            
+            # Cache result
+            from datetime import datetime
+            self._orderbook_cache[code] = {
+                'timestamp': datetime.now(),
+                'data': result
+            }
+            
+            return result
+            
+        except Exception as e:
+            logger.warning(f"Error fetching Invezgo data for {ticker}: {e}")
+            return {'enabled': True, 'error': str(e)}
     
     def _create_empty_result(self, ticker: str, reason: str) -> Dict:
         """Create empty result for failed screenings"""

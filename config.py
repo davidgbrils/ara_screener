@@ -408,6 +408,12 @@ FALLBACK_APIS = {
         "ENABLED": False,
         "BASE_URL": "https://scanner.tradingview.com",
     },
+    "INVEZGO": {
+        "ENABLED": bool(os.getenv("INVEZGO_API_KEY", "")),
+        "API_KEY": os.getenv("INVEZGO_API_KEY", ""),
+        "BASE_URL": "https://api.invezgo.com",
+        "TIMEOUT": 30,
+    },
 }
 
 @dataclass

@@ -3,6 +3,14 @@ ARA FULL BOT V2 - Main Entry Point
 Auto-run mode: python main.py
 """
 
+import sys
+import io
+
+# Fix Windows console encoding for emojis
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 import json
 import pandas as pd
 from pathlib import Path
@@ -507,6 +515,126 @@ def interactive_mode():
     return results, allocation
 
 
+def analyze_ticker(ticker: str, notify: bool = False) -> None:
+    """
+    Perform multi-timeframe technical analysis on a ticker
+    
+    Args:
+        ticker: Stock ticker
+        notify: Send to Telegram
+    """
+    print(f"\n{'='*60}")
+    print(f"📊 TECHNICAL ANALYSIS: {ticker}")
+    print(f"{'='*60}\n")
+    
+    # Initialize components
+    from analysis import TechnicalAnalyzer
+    from data_fetch.data_fetcher import DataFetcher
+    from charts.chart_engine import ChartEngine
+    from notifier.telegram_notifier import TelegramNotifier
+    
+    analyzer = TechnicalAnalyzer()
+    fetcher = DataFetcher()
+    chart_engine = ChartEngine()
+    notifier = TelegramNotifier()
+    
+    # Normalize ticker
+    if not ticker.endswith('.JK'):
+        ticker = f"{ticker}.JK"
+    
+    # Fetch data for each timeframe
+    print("📥 Fetching data...")
+    data = {}
+    
+    # Daily data
+    df_daily = fetcher.fetch(ticker, force_refresh=True)
+    if df_daily is not None:
+        data["1D"] = df_daily
+        print(f"  ✓ 1D: {len(df_daily)} candles")
+    
+    # For intraday we simulate from daily data (Yahoo limitation)
+    # In production, use intraday API
+    if "1D" in data:
+        # Simulate 4h from daily
+        data["4h"] = data["1D"].copy()
+        data["1h"] = data["1D"].copy()
+        print(f"  ✓ 4h, 1h: Using daily data (simulated)")
+    
+    if not data:
+        print("❌ No data available for analysis")
+        return
+    
+    # Perform analysis
+    print("\n🔍 Analyzing...")
+    analysis = analyzer.analyze(ticker, data)
+    
+    if not analysis:
+        print("❌ Analysis failed")
+        return
+    
+    # Print results
+    print(f"\n{'='*50}")
+    print("🔍 MULTI-TIMEFRAME SUMMARY")
+    print(f"{'='*50}")
+    
+    tf_order = ["1D", "4h", "1h", "15m", "5m"]
+    for tf in tf_order:
+        if tf in analysis.timeframes:
+            tf_a = analysis.timeframes[tf]
+            print(f"  {tf}: {tf_a.trend_emoji} {tf_a.trend} ({tf_a.summary})")
+    
+    print(f"\n📈 PRIMARY TREND: {analysis.primary_trend}")
+    print(f"🎯 TRADING BIAS: {analysis.bias}")
+    print(f"📊 CONFLUENCE: {analysis.confluence} ({analysis.confidence:.0f}%)")
+    
+    print(f"\n🔒 KEY LEVELS")
+    print(f"  Resistance: Rp{analysis.key_resistance:,.0f}")
+    print(f"  Current:    Rp{analysis.current_price:,.0f}")
+    print(f"  Support:    Rp{analysis.key_support:,.0f}")
+    
+    if analysis.trading_plan and analysis.bias != "AVOID":
+        plan = analysis.trading_plan
+        print(f"\n📝 TRADING PLAN")
+        print(f"  Entry: Rp{plan.entry_low:,.0f} - Rp{plan.entry_high:,.0f}")
+        print(f"  TP1:   Rp{plan.tp1:,.0f} (+{plan.tp1_pct:.1f}%)")
+        print(f"  TP2:   Rp{plan.tp2:,.0f} (+{plan.tp2_pct:.1f}%)")
+        print(f"  SL:    Rp{plan.sl:,.0f} (-{plan.sl_pct:.1f}%)")
+        print(f"  R:R:   1:{plan.risk_reward:.1f}")
+    
+    if analysis.warnings:
+        print(f"\n⚠️ WARNINGS")
+        for w in analysis.warnings:
+            print(f"  • {w}")
+    
+    # Generate chart
+    print(f"\n📈 Generating chart...")
+    if "1D" in data:
+        chart_path = chart_engine.generate_chart(
+            data["1D"],
+            ticker,
+            f"TA_{analysis.primary_trend}",
+            analysis.trading_plan.__dict__ if analysis.trading_plan else {},
+            {}
+        )
+        if chart_path:
+            print(f"  ✓ Chart saved: {chart_path}")
+    else:
+        chart_path = None
+    
+    # Send to Telegram
+    if notify:
+        print(f"\n📤 Sending to Telegram...")
+        success = notifier.send_technical_analysis(analysis, chart_path)
+        if success:
+            print("  ✓ Sent successfully!")
+        else:
+            print("  ❌ Failed to send")
+    
+    print(f"\n{'='*60}")
+    print("⚠️ DISCLAIMER: This is not financial advice. Trade at your own risk.")
+    print(f"{'='*60}")
+
+
 def main():
     """Main entry point"""
     import argparse
@@ -544,8 +672,24 @@ def main():
         action="store_true",
         help="Force refresh data"
     )
+    parser.add_argument(
+        "--analyze",
+        type=str,
+        default=None,
+        help="Perform technical analysis on a ticker (e.g., --analyze BBCA)"
+    )
+    parser.add_argument(
+        "--notify",
+        action="store_true",
+        help="Send analysis to Telegram"
+    )
     
     args = parser.parse_args()
+    
+    # Technical Analysis mode
+    if args.analyze:
+        analyze_ticker(args.analyze, notify=args.notify)
+        return None
     
     # Interactive mode
     if args.interactive:
