@@ -1,5 +1,7 @@
 """Professional candlestick chart generator"""
 
+import matplotlib
+matplotlib.use('Agg') # Fix for main thread error
 import mplfinance as mpf
 import pandas as pd
 import numpy as np
@@ -18,6 +20,18 @@ class ChartEngine:
         self.config = CHART_CONFIG
         self.charts_dir = CHARTS_DIR
         self.charts_dir.mkdir(exist_ok=True)
+
+    def cleanup_charts(self):
+        """Delete all existing charts in the charts directory"""
+        try:
+            logger.info(f"Cleaning up charts directory: {self.charts_dir}")
+            for chart_file in self.charts_dir.glob("*.png"):
+                try:
+                    chart_file.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to delete {chart_file}: {e}")
+        except Exception as e:
+            logger.error(f"Error cleaning charts directory: {e}")
     
     def generate_chart(
         self,
@@ -28,7 +42,7 @@ class ChartEngine:
         highlight_patterns: Dict = None
     ) -> Optional[Path]:
         """
-        Generate candlestick chart with indicators
+        Generate candlestich chart with indicators and signal markers
         
         Args:
             df: DataFrame with OHLCV and indicators
@@ -44,30 +58,37 @@ class ChartEngine:
             return None
         
         try:
-            # Prepare data (last 100 days for clarity)
-            chart_df = df.tail(100).copy()
+            # Prepare data (last 120 days for better context)
+            chart_df = df.tail(120).copy()
             
-            # Create custom style
+            # Create custom Professional Dark style
             mc = mpf.make_marketcolors(
-                up='#00ff00',
-                down='#ff0000',
+                up='#26a69a',      # TradingView Green
+                down='#ef5350',    # TradingView Red
                 edge='inherit',
-                wick={'upcolor': '#00ff00', 'downcolor': '#ff0000'},
-                volume='in'
+                wick='inherit',
+                volume={'up': '#1b5e20', 'down': '#b71c1c'},
+                ohlc='inherit'
             )
             
             style = mpf.make_mpf_style(
+                base_mpf_style='nightclouds',
                 marketcolors=mc,
-                gridstyle='-',
-                gridcolor='#333333',
-                y_on_right=False
+                gridstyle=':',
+                gridcolor='#2a2e39',
+                facecolor='#131722',  # Dark background
+                edgecolor='#2a2e39',
+                rc={'figure.facecolor': '#131722', 'axes.labelcolor': '#b2b5be', 'xtick.color': '#b2b5be', 'ytick.color': '#b2b5be'}
             )
             
-            # Prepare additional plots
-            addplot = self._prepare_addplot(chart_df, entry_levels)
+            # Prepare additional plots (Indicators & Signals)
+            addplot = self._prepare_addplot(chart_df, entry_levels, highlight_patterns)
+            
+            # Title with signal info
+            title = f"{ticker} - {signal.replace('_', ' ')} Setup"
             
             # Generate chart
-            filename = f"{ticker}_{signal}.png"
+            filename = f"{ticker}_{signal}_{pd.Timestamp.now().strftime('%Y%m%d%H%M%S')}.png"
             filepath = self.charts_dir / filename
             
             mpf.plot(
@@ -76,91 +97,100 @@ class ChartEngine:
                 style=style,
                 volume=True if self.config["SHOW_VOLUME"] else False,
                 addplot=addplot,
+                title=dict(title=title, color='#d1d4dc', size=14),
                 figsize=self.config["FIG_SIZE"],
-                savefig=dict(fname=filepath, dpi=self.config["DPI"], bbox_inches='tight'),
+                savefig=dict(fname=filepath, dpi=self.config["DPI"], bbox_inches='tight', facecolor='#131722'),
                 show_nontrading=False,
                 tight_layout=True,
+                panel_ratios=(6, 2), # Larger price panel
+                datetime_format='%b %d',
+                xrotation=0,
+                scale_width_adjustment=dict(candle=1.1, volume=0.7),
             )
             
-            logger.info(f"Generated chart: {filepath}")
+            logger.info(f"Generated professional chart: {filepath}")
             return filepath
             
         except Exception as e:
             logger.error(f"Error generating chart for {ticker}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
     
-    def _prepare_addplot(self, df: pd.DataFrame, entry_levels: Dict = None) -> list:
-        """Prepare additional plots (MAs, entry levels, etc.)"""
+    def _prepare_addplot(self, df: pd.DataFrame, entry_levels: Dict = None, patterns: Dict = None) -> list:
+        """Prepare additional plots (MAs, entry levels, signals)"""
         addplot = []
         
-        # Moving Averages
+        # 1. Moving Averages (Smooth lines)
         if self.config["SHOW_INDICATORS"]:
-            for period in [20, 50, 200]:
+            for period, color in [(20, '#2962ff'), (50, '#ff9800'), (200, '#f50057')]: # Blue, Orange, Pink
                 ma_col = f'MA{period}'
                 if ma_col in df.columns:
                     addplot.append(
                         mpf.make_addplot(
                             df[ma_col],
-                            color='blue' if period == 20 else 'orange' if period == 50 else 'red',
-                            width=1,
-                            alpha=0.7
+                            color=color,
+                            width=1.5 if period == 20 else 1.2,
+                            alpha=0.9
                         )
                     )
             
-            # Bollinger Bands
+            # Bollinger Bands (Subtle fill)
             if 'BB_Upper' in df.columns and 'BB_Lower' in df.columns:
                 addplot.append(
-                    mpf.make_addplot(df['BB_Upper'], color='gray', width=1, alpha=0.5)
+                    mpf.make_addplot(df['BB_Upper'], color='#3179f5', width=0.8, alpha=0.3)
                 )
                 addplot.append(
-                    mpf.make_addplot(df['BB_Lower'], color='gray', width=1, alpha=0.5)
+                    mpf.make_addplot(df['BB_Lower'], color='#3179f5', width=0.8, alpha=0.3)
                 )
+                # Note: fill_between is not easily supported in simple addplot list, skipping for simplicity
 
-            # VWAP line
+            # VWAP (Institutional benchmark)
             if 'VWAP' in df.columns:
                 addplot.append(
-                    mpf.make_addplot(df['VWAP'], color='#6A5ACD', width=1, alpha=0.7)
+                    mpf.make_addplot(df['VWAP'], color='#e040fb', width=1.2, linestyle='-.', alpha=0.8)
                 )
 
-            # 52W High and 20D High lines (last value as horizontal reference)
-            if 'HIGH_52W' in df.columns and not df['HIGH_52W'].isna().all():
-                h52 = df['HIGH_52W'].iloc[-1]
+        # 2. Buy Signals & Volume Spikes (Markers)
+        # Pocket Pivot / Volume Spike Marker
+        if 'Volume' in df.columns:
+            vol_ma = df['Volume'].rolling(20).mean()
+            vol_spike_mask = (df['Volume'] > vol_ma * 2.5) & (df['Close'] > df['Open'])
+            
+            # Create a series of NaNs, populate only where condition is True
+            spike_marker = np.full(len(df), np.nan)
+            spike_marker[vol_spike_mask] = df['Low'][vol_spike_mask] * 0.98 # Place below candle
+            
+            if np.any(~np.isnan(spike_marker)):
                 addplot.append(
-                    mpf.make_addplot([h52] * len(df), color='#00CED1', linestyle=':', width=1, alpha=0.8)
+                    mpf.make_addplot(
+                        spike_marker,
+                        type='scatter',
+                        markersize=50,
+                        marker='^',
+                        color='#00e676', # Bright green
+                        panel=0
+                    )
                 )
-            if 'HIGH_20D' in df.columns and not df['HIGH_20D'].isna().all():
-                h20 = df['HIGH_20D'].iloc[-1]
-                addplot.append(
-                    mpf.make_addplot([h20] * len(df), color='#FFD700', linestyle=':', width=1, alpha=0.8)
-                )
-        
-        # Entry levels (horizontal lines)
+
+        # 3. Entry Levels (Actionable Zones)
         if entry_levels:
             entry_low = entry_levels.get('entry_low')
             entry_high = entry_levels.get('entry_high')
             stop_loss = entry_levels.get('stop_loss')
             tp1 = entry_levels.get('take_profit_1')
-            tp2 = entry_levels.get('take_profit_2')
             
-            if entry_low:
+            # We plot these as horizontal lines across the whole chart for clarity
+            if entry_high and entry_low:
+                # Use mean for single line visualization of entry
+                entry_avg = (entry_low + entry_high) / 2
                 addplot.append(
                     mpf.make_addplot(
-                        [entry_low] * len(df),
-                        color='green',
+                        [entry_avg] * len(df),
+                        color='#00e676',
                         linestyle='--',
-                        width=1,
-                        alpha=0.7
-                    )
-                )
-            
-            if entry_high:
-                addplot.append(
-                    mpf.make_addplot(
-                        [entry_high] * len(df),
-                        color='green',
-                        linestyle='--',
-                        width=1,
-                        alpha=0.7
+                        width=1.0,
+                        alpha=0.8
                     )
                 )
             
@@ -168,10 +198,10 @@ class ChartEngine:
                 addplot.append(
                     mpf.make_addplot(
                         [stop_loss] * len(df),
-                        color='red',
+                        color='#ff1744',
                         linestyle='--',
-                        width=1,
-                        alpha=0.7
+                        width=1.0,
+                        alpha=0.8
                     )
                 )
             
@@ -179,38 +209,15 @@ class ChartEngine:
                 addplot.append(
                     mpf.make_addplot(
                         [tp1] * len(df),
-                        color='blue',
+                        color='#00b0ff',
                         linestyle='--',
-                        width=1,
-                        alpha=0.7
-                    )
-                )
-            
-            if tp2:
-                addplot.append(
-                    mpf.make_addplot(
-                        [tp2] * len(df),
-                        color='purple',
-                        linestyle='--',
-                        width=1,
-                        alpha=0.7
+                        width=1.0,
+                        alpha=0.8
                     )
                 )
         
         return addplot
-    
-    def generate_comparison_chart(self, tickers: list, dfs: dict) -> Optional[Path]:
-        """
-        Generate comparison chart for multiple tickers
-        
-        Args:
-            tickers: List of ticker symbols
-            dfs: Dictionary mapping ticker to DataFrame
-        
-        Returns:
-            Path to saved chart or None
-        """
-        # This would require more complex plotting
-        # For now, return None
-        return None
 
+    def generate_comparison_chart(self, tickers: list, dfs: dict) -> Optional[Path]:
+        """Placeholder for comparison chart"""
+        return None

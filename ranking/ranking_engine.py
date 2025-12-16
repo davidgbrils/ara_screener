@@ -14,7 +14,7 @@ class RankingEngine:
         """Initialize ranking engine"""
         self.ml_scorer = MLScorer()
     
-    def rank(self, results: List[Dict], top_n: int = None, min_confidence: float = 0.4) -> List[Dict]:
+    def rank(self, results: List[Dict], top_n: int = None, min_confidence: float = 0.7) -> List[Dict]:
         """
         Rank results by score, confidence, and ML probability
         

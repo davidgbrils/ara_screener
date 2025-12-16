@@ -205,6 +205,7 @@ LOGGING_CONFIG = {
     "BACKUP_COUNT": 5,
 }
 
+
 # Advanced Pattern Detection
 PATTERN_CONFIG = {
     "PARABOLIC_DETECTION": True,
@@ -217,6 +218,172 @@ PATTERN_CONFIG = {
     "VOLUME_DRY_UP": True,
     "MONEY_FLOW": True,
     "MARKET_REGIME": True,
+}
+
+# =============================================================================
+# GORENGAN & UMA & INSIDER ACTIVITY DETECTION CONFIG
+# =============================================================================
+
+# Gorengan Detection Configuration
+GORENGAN_CONFIG = {
+    # Filter Awal - Ciri Saham Gorengan
+    "MAX_PRICE_GORENGAN": 500,           # Harga < Rp 500
+    "MAX_MARKET_CAP": 1_000_000_000_000, # Market Cap < 1T (1 Triliun)
+    "MAX_FREE_FLOAT_PCT": 30,            # Free Float < 30% (requires external data)
+    
+    # Volume Ratio Thresholds
+    "VR_ABNORMAL": 5,                    # Volume Ratio >= 5 = tidak normal
+    "VR_SUSPICIOUS": 10,                 # Volume Ratio >= 10 = sangat mencurigakan
+    
+    # Price Spike Thresholds (in %)
+    "PRICE_SPIKE_GORENGAN": 10,          # >= 10% = indikasi gorengan
+    "PRICE_SPIKE_UMA": 20,               # >= 20% = kandidat UMA
+    
+    # UMA Detection
+    "BODY_RATIO_THRESHOLD": 0.7,         # Body Ratio >= 0.7 (candle tidak wajar)
+    "MULTI_DAY_PUMP_PCT": 25,            # >= 25% dalam N hari
+    "MULTI_DAY_PUMP_DAYS": 3,            # Periode hari untuk multi-day pump
+    
+    # Insider Activity Detection
+    "BROKER_CONCENTRATION_MIN": 30,      # >= 30% = bandar mulai kerja
+    "BROKER_CONCENTRATION_HIGH": 50,     # >= 50% = insider/big player
+    
+    # Smart Money Detection (High Volume + Low Price Change)
+    "HIGH_VOL_LOW_ATR_VOL_MULT": 2.0,    # Volume > 2x average
+    "HIGH_VOL_LOW_ATR_RANGE_MAX": 2.0,   # Price Range % < 2%
+    
+    # Distribution Detection
+    "RSI_DIVERGENCE_LOOKBACK": 14,       # Lookback period for RSI divergence
+    "FAKE_BREAKOUT_TOLERANCE": 0.02,     # 2% tolerance for fake breakout
+}
+
+# Gorengan Scoring Weights (based on user specification)
+GORENGAN_SCORING = {
+    "VR_5": 2,              # Volume Ratio >= 5: +2 skor
+    "VR_10": 4,             # Volume Ratio >= 10: +4 skor (replaces VR_5)
+    "PRICE_SPIKE_10": 2,    # Price Spike >= 10%: +2 skor
+    "PRICE_SPIKE_20": 4,    # Price Spike >= 20%: +4 skor (replaces PRICE_SPIKE_10)
+    "BROKER_CONC_40": 3,    # Broker Concentration >= 40%: +3 skor
+    "SIDEWAYS_NETBUY": 3,   # Sideways + Net Buy: +3 skor
+    "RSI_DIVERGENCE": 2,    # RSI Divergence: +2 skor
+    "BODY_RATIO_HIGH": 2,   # Body Ratio >= 0.7: +2 skor
+    "MULTI_DAY_PUMP": 3,    # Multi-Day Pump >= 25%: +3 skor
+    "HIGH_VOL_LOW_ATR": 2,  # Smart Money signal: +2 skor
+    "LOW_PRICE": 1,         # Harga < 500: +1 skor
+    "LOW_MARKET_CAP": 1,    # Market Cap < 1T: +1 skor
+    "FAKE_BREAKOUT": 2,     # Fake Breakout detected: +2 skor
+}
+
+# Gorengan Risk Level Interpretation
+GORENGAN_RISK_LEVELS = {
+    "ACTIVE_GORENGAN": 8,    # Skor >= 8 → Saham Gorengan Aktif
+    "HIGH_UMA_RISK": 12,     # Skor >= 12 → Risiko UMA tinggi
+    "INSIDER_STRONG": 15,    # Skor >= 15 → Insider/Bandar kuat
+}
+
+# =============================================================================
+# MULTI-MODE SCREENING CONFIGURATION
+# =============================================================================
+
+# Mode A - BPJS / Saham Sehat (Aman & Stabil)
+MODE_BPJS_CONFIG = {
+    "MARKET_CAP_MIN": 5_000_000_000_000,  # > 5T
+    "AVG_VOL_20D_MIN": 10_000_000,         # > 10M
+    "FREE_FLOAT_MIN": 35,                   # > 35% (estimated)
+    "RSI_MIN": 50,
+    "RSI_MAX": 65,
+    "ATR_STABLE": True,
+    "EMA_STRUCTURE": True,  # EMA5 > EMA20
+    "PRICE_ABOVE_MA20": True,
+}
+
+# Mode B - Potensi ARA (Fast Move)
+MODE_ARA_CONFIG = {
+    "PRICE_MAX": 500,
+    "VOLUME_RATIO_MIN": 7,         # Vol / Avg20 >= 7
+    "GAP_UP_MIN": 3,               # Gap Up >= 3%
+    "CLOSE_NEAR_HIGH_PCT": 90,     # Close >= 90% dari range
+    "BODY_CANDLE_MIN": 70,         # Body >= 70%
+    "ATR_RISING": True,
+    "BREAK_RESISTANCE_20D": True,
+    "NOT_ARA_TODAY": True,         # Belum ARA hari ini
+    "NO_UMA": True,                # Tidak ada UMA resmi
+}
+
+# Mode C - Multi-Bagger Awal (Belum Naik Jauh)
+MODE_MULTIBAGGER_CONFIG = {
+    "PRICE_GAIN_FROM_BASE_MAX": 50,  # < 50% dari base
+    "VOLUME_GRADUAL_INCREASE": True,  # Volume naik bertahap
+    "RSI_MIN": 45,
+    "RSI_MAX": 60,
+    "EPS_GROWTH_MIN": 0,           # Positive
+    "DER_MAX": 1.5,
+    "ROE_MIN": 10,                 # > 10%
+    "NOT_FREQUENT_ARA": True,      # Tidak sering ARA
+}
+
+# Mode D - Scalping Intraday (Cuan Cepat)
+MODE_SCALPING_CONFIG = {
+    "VOLUME_INTRADAY_MULT": 2,     # > 2x jam sebelumnya (proxy: daily surge)
+    "VWAP_BREAK_RETEST": True,
+    "EMA_STRUCTURE": True,          # EMA5 > EMA8 > EMA20
+    "RSI_MIN": 55,
+    "RSI_MAX": 70,
+    "SPREAD_THIN": True,            # Spread tipis
+    "TP_PCT_MIN": 1,
+    "TP_PCT_MAX": 3,
+    "SL_PCT_MIN": 0.5,
+    "SL_PCT_MAX": 1,
+}
+
+# Mode E - Gorengan & UMA Filter (Already implemented in GORENGAN_CONFIG)
+# Uses GORENGAN_CONFIG defined above
+
+# =============================================================================
+# ENHANCED SCORING SYSTEM (WAJIB ADA)
+# =============================================================================
+
+ENHANCED_SCORING = {
+    # Positive factors
+    "VOLUME_RATIO_5": +2,           # Volume Ratio >= 5
+    "VOLUME_RATIO_10": +4,          # Volume Ratio >= 10
+    "BROKER_DOMINANT_40": +3,       # Broker > 40% volume
+    "BREAK_RESISTANCE_VALID": +2,   # Break resistance valid
+    "RSI_HEALTHY": +1,              # RSI dalam zona sehat
+    "EMA_STRUCTURE_BULLISH": +2,    # EMA5 > EMA8 > EMA20
+    "ABOVE_VWAP": +1,               # Close > VWAP
+    "BODY_CANDLE_STRONG": +1,       # Body > 70%
+    "CLOSE_NEAR_HIGH": +1,          # Close >= 90% range
+    "GAP_UP": +1,                   # Gap up
+    
+    # Negative factors
+    "DIVERGENCE": -2,               # RSI Divergence
+    "DISTRIBUTION": -3,             # Distribusi broker
+    "FAKE_BREAKOUT": -2,            # Fake breakout
+    "ALREADY_ARA": -5,              # Sudah ARA hari ini
+    "UMA_ACTIVE": -3,               # Ada UMA resmi
+    "OVERBOUGHT": -1,               # RSI > 80
+    "OVERSOLD_MOMENTUM_LOSS": -2,   # RSI < 30 dan turun
+}
+
+SCORE_INTERPRETATION = {
+    "HIGH_OPPORTUNITY": 10,    # Skor >= 10 → High Opportunity
+    "STRONG_MOMENTUM": 14,     # Skor >= 14 → Strong Momentum
+    "AVOID_THRESHOLD": 5,      # Skor < 5 → Avoid
+}
+
+# =============================================================================
+# CAPITAL ADVISOR CONFIGURATION
+# =============================================================================
+
+CAPITAL_ADVISOR_CONFIG = {
+    "LOT_SIZE": 100,               # Standard lot size IDX
+    "MAX_POSITION_PCT": 20,        # Max 20% per posisi
+    "RISK_PER_TRADE_PCT": 2,       # Risk 2% per trade
+    "MIN_CAPITAL_SCALPING": 5_000_000,    # Min 5jt untuk scalping
+    "MIN_CAPITAL_SWING": 10_000_000,      # Min 10jt untuk swing
+    "COMMISSION_PCT": 0.15,         # Komisi 0.15%
+    "TAX_SELL_PCT": 0.1,           # Pajak jual 0.1%
 }
 
 # Fundamentals settings (optional)

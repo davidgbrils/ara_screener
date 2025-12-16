@@ -90,8 +90,8 @@ class ARABot:
             # Add timestamp
             result['timestamp'] = datetime.now().isoformat()
             
-            # Generate chart if signal (will generate for top 10 later)
-            if result.get('signal') != 'NONE':
+            # Generate chart ONLY for SUPER_ALPHA and STRONG_AURA
+            if result.get('signal') in ['SUPER_ALPHA', 'STRONG_AURA']:
                 chart_path = self.chart_engine.generate_chart(
                     df,
                     ticker,
@@ -234,7 +234,7 @@ class ARABot:
                 logger.info(f"Confidence range: {min(confidences):.3f} - {max(confidences):.3f}, mean: {sum(confidences)/len(confidences):.3f}")
         
         # Rank results - top 5 with high confidence
-        ranked_results = self.ranker.rank(results, top_n=5, min_confidence=0.40)
+        ranked_results = self.ranker.rank(results, top_n=5, min_confidence=0.70)
         
         logger.info(f"Scan complete: {len(ranked_results)} high-confidence signals found from {len(results)} processed")
         
@@ -292,58 +292,60 @@ class ARABot:
     
     def send_notifications(self, results: List[Dict]):
         """
-        Send Telegram notifications for top 10 with charts
+        Send Telegram notifications for Top 5 SUPER_ALPHA and Top 5 STRONG_AURA
         
         Args:
-            results: List of results (already filtered to top 10)
+            results: List of results
         """
         if not self.notifier.enabled:
             return
         
         try:
-            # Only send top 5 with high confidence
-            top_10 = results[:5]
+            # Filter specifically for the requested signals
+            super_alpha = [r for r in results if r.get('signal') == 'SUPER_ALPHA']
+            strong_aura = [r for r in results if r.get('signal') == 'STRONG_AURA']
+            
+            # Sort by score descending
+            super_alpha.sort(key=lambda x: x.get('score', 0), reverse=True)
+            strong_aura.sort(key=lambda x: x.get('score', 0), reverse=True)
+            
+            # Take top 5 of each
+            top_super = super_alpha[:5]
+            top_strong = strong_aura[:5]
+            
+            final_list = top_super + top_strong
+            
+            if not final_list:
+                logger.info("No SUPER_ALPHA or STRONG_AURA signals found to send.")
+                return
 
-            # Fallback: if no high-confidence results, send top 5 by score where signal != NONE
-            if not top_10:
-                fallback = [r for r in results if r and r.get('signal') != 'NONE']
-                fallback_sorted = sorted(fallback, key=lambda x: x.get('score', 0), reverse=True)
-                top_10 = fallback_sorted[:5]
-                if not top_10:
-                    logger.info("No signals to send (including fallback)")
-                    return
-                else:
-                    logger.info(f"Using fallback signals (score-based): {len(top_10)}")
+            logger.info(f"Preparing notifications for {len(top_super)} Super Alpha and {len(top_strong)} Strong Aura signals...")
             
-            # Generate charts for top 10 if not already generated
-            logger.info(f"Generating charts for top {len(top_10)} signals...")
-            for result in top_10:
-                if not result.get('chart_path'):
-                    # Need to regenerate chart - fetch data again
-                    ticker = result.get('ticker')
-                    if ticker:
-                        try:
-                            df = self.data_fetcher.fetch(ticker)
+            # Generate charts ONLY for these final candidates
+            for result in final_list:
+                ticker = result.get('ticker')
+                if not result.get('chart_path') and ticker:
+                    try:
+                        # Regenerate df for chart
+                        df = self.data_fetcher.fetch(ticker)
+                        if df is not None:
+                            df = self.normalizer.normalize(df)
                             if df is not None:
-                                df = self.normalizer.normalize(df)
-                                if df is not None:
-                                    df = self.indicator_engine.calculate_all(df)
-                                    chart_path = self.chart_engine.generate_chart(
-                                        df,
-                                        ticker,
-                                        result.get('signal'),
-                                        result.get('entry_levels'),
-                                        result.get('patterns')
-                                    )
-                                    if chart_path:
-                                        result['chart_path'] = str(chart_path)
-                        except Exception as e:
-                            logger.warning(f"Could not generate chart for {ticker}: {e}")
+                                df = self.indicator_engine.calculate_all(df)
+                                chart_path = self.chart_engine.generate_chart(
+                                    df,
+                                    ticker,
+                                    result.get('signal'),
+                                    result.get('entry_levels'),
+                                    result.get('patterns')
+                                )
+                                if chart_path:
+                                    result['chart_path'] = str(chart_path)
+                    except Exception as e:
+                        logger.warning(f"Could not generate chart for {ticker}: {e}")
             
-            # Send individual signals with charts for top 10
-            logger.info(f"Sending {len(top_10)} top signals with charts...")
-            
-            for i, result in enumerate(top_10, 1):
+            # Send individual signals with charts
+            for i, result in enumerate(final_list, 1):
                 chart_path = None
                 if result.get('chart_path'):
                     chart_path = Path(result['chart_path'])
@@ -353,18 +355,18 @@ class ARABot:
                 # Send signal with chart
                 success = self.notifier.send_signal(result, chart_path)
                 if success:
-                    logger.info(f"[SENT] Signal {i}/10: {result.get('ticker')} (Confidence: {result.get('confidence', 0):.1%})")
-                else:
-                    logger.warning(f"[FAIL] Failed to send signal: {result.get('ticker')}")
+                    logger.info(f"[SENT] {result.get('signal')} {i}: {result.get('ticker')}")
             
-            # Send summary message
+            # Send summary message (only these top picks)
             if TELEGRAM_CONFIG.get("SEND_SUMMARY", True):
-                self.notifier.send_summary(top_10, top_n=5)
+                self.notifier.send_summary(final_list, top_n=10)
             
-            logger.info(f"[DONE] Notifications sent: {len(top_10)} top signals with charts")
+            logger.info(f"[DONE] Sent {len(final_list)} priority notifications")
             
         except Exception as e:
             logger.error(f"Error sending notifications: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def run(
         self, 
@@ -387,6 +389,9 @@ class ARABot:
         logger.info(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"Force Refresh: {force_refresh}")
         logger.info("=" * 50)
+        
+        # Cleanup old charts before starting
+        self.chart_engine.cleanup_charts()
         
         # Scan with fresh data if requested
         if force_refresh:
@@ -416,11 +421,97 @@ class ARABot:
         
         return results
 
+def interactive_mode():
+    """
+    Interactive mode with capital input for personalized recommendations
+    """
+    from recommendation.capital_advisor import CapitalAdvisor
+    
+    print("\n" + "=" * 60)
+    print("🚀 ARA BOT V3 - Professional Quant Screening System")
+    print("=" * 60)
+    print("\nSelamat datang! Bot ini akan membantu Anda menemukan")
+    print("peluang trading berdasarkan modal dan gaya trading Anda.")
+    print()
+    
+    # Get capital input
+    while True:
+        try:
+            capital_input = input("💰 Masukkan modal Anda (Rp): ").replace(",", "").replace(".", "").strip()
+            capital = float(capital_input)
+            if capital < 1_000_000:
+                print("⚠️ Modal minimal Rp 1.000.000")
+                continue
+            break
+        except ValueError:
+            print("❌ Input tidak valid. Masukkan angka saja (contoh: 10000000)")
+    
+    # Get risk profile
+    print("\n📊 Pilih Profil Risiko:")
+    print("  1. Conservative (Aman, risiko rendah)")
+    print("  2. Moderate (Seimbang)")
+    print("  3. Aggressive (Berani, risiko tinggi)")
+    
+    risk_choice = input("Pilihan (1/2/3): ").strip()
+    risk_profiles = {"1": "conservative", "2": "moderate", "3": "aggressive"}
+    risk_profile = risk_profiles.get(risk_choice, "moderate")
+    
+    # Get mode preference
+    print("\n🎯 Pilih Mode Screening:")
+    print("  A. BPJS (Saham Sehat - Swing/Scalping Aman)")
+    print("  B. ARA (Potensi Auto Rejection Atas)")
+    print("  C. Multi-Bagger (Saham Undervalue)")
+    print("  D. Scalping (Intraday Quick Trade)")
+    print("  E. Gorengan/UMA (Filter Risiko)")
+    print("  F. Semua Mode (Rekomendasi Terbaik)")
+    
+    mode_choice = input("Pilihan (A/B/C/D/E/F): ").strip().upper()
+    mode_map = {
+        "A": "bpjs", "B": "ara", "C": "multibagger",
+        "D": "scalping", "E": "gorengan", "F": "all"
+    }
+    selected_mode = mode_map.get(mode_choice, "scalping")
+    
+    print(f"\n✅ Modal: Rp{capital:,.0f}")
+    print(f"✅ Profil Risiko: {risk_profile.upper()}")
+    print(f"✅ Mode: {selected_mode.upper()}")
+    print("\n🔍 Memulai scanning... (ini mungkin memakan waktu beberapa menit)")
+    print("-" * 60)
+    
+    # Run bot
+    bot = ARABot()
+    results = bot.run(force_refresh=False)
+    
+    # Generate capital-based recommendations
+    print("\n" + "=" * 60)
+    print("📈 GENERATING PERSONALIZED RECOMMENDATIONS...")
+    print("=" * 60)
+    
+    advisor = CapitalAdvisor(capital, risk_profile)
+    allocation = advisor.allocate_capital(results, selected_mode)
+    
+    # Print recommendations
+    print(advisor.format_allocation_text(allocation))
+    
+    # Send to Telegram if available
+    from config import TELEGRAM_CONFIG
+    if TELEGRAM_CONFIG.get("ENABLED"):
+        from notifier.telegram_notifier import TelegramNotifier
+        notifier = TelegramNotifier()
+        
+        # Send capital-based summary
+        summary_text = advisor.format_allocation_text(allocation)
+        notifier.send_message(summary_text[:4000])  # Telegram limit
+        print("\n✅ Rekomendasi terkirim ke Telegram!")
+    
+    return results, allocation
+
+
 def main():
     """Main entry point"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="ARA Bot V2 - Multi-Bagger Scanner")
+    parser = argparse.ArgumentParser(description="ARA Bot V3 - Professional Quant Screener")
     parser.add_argument(
         "--resume",
         action="store_true",
@@ -431,18 +522,72 @@ def main():
         nargs="+",
         help="Specific tickers to scan (e.g., BBCA.JK BBRI.JK)"
     )
+    parser.add_argument(
+        "--interactive", "-i",
+        action="store_true",
+        help="Run in interactive mode with capital input"
+    )
+    parser.add_argument(
+        "--capital",
+        type=float,
+        default=None,
+        help="Trading capital in IDR (e.g., 10000000)"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["bpjs", "ara", "multibagger", "scalping", "gorengan", "all"],
+        default="scalping",
+        help="Screening mode (default: scalping)"
+    )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Force refresh data"
+    )
     
     args = parser.parse_args()
     
-    bot = ARABot()
-    results = bot.run(tickers=args.tickers, resume=args.resume)
+    # Interactive mode
+    if args.interactive:
+        results, allocation = interactive_mode()
+        return results
     
-    # Print top 10
-    print("\n" + "=" * 50)
-    print("TOP 5 RESULTS")
-    print("=" * 50)
-    for i, result in enumerate(results[:5], 1):
-        print(f"{i}. {result.get('ticker')} - {result.get('signal')} ({result.get('score', 0):.1%})")
+    # Standard mode with optional capital
+    bot = ARABot()
+    results = bot.run(tickers=args.tickers, resume=args.resume, force_refresh=args.refresh)
+    
+    # If capital provided, generate recommendations
+    if args.capital:
+        from recommendation.capital_advisor import CapitalAdvisor
+        
+        print("\n" + "=" * 60)
+        print(f"📊 REKOMENDASI UNTUK MODAL Rp{args.capital:,.0f}")
+        print("=" * 60)
+        
+        advisor = CapitalAdvisor(args.capital)
+        allocation = advisor.allocate_capital(results, args.mode)
+        print(advisor.format_allocation_text(allocation))
+    else:
+        # Print top results (original behavior)
+        print("\n" + "=" * 50)
+        print("TOP 5 RESULTS")
+        print("=" * 50)
+        for i, result in enumerate(results[:5], 1):
+            ticker = result.get('ticker', 'N/A')
+            signal = result.get('signal', 'N/A')
+            score = result.get('score', 0)
+            
+            # Get mode info if available
+            all_modes = result.get('classifications', {}).get('all_modes', {})
+            best_mode = all_modes.get('best_mode', '')
+            bandar_timing = all_modes.get('bandar_timing', '')
+            
+            print(f"{i}. {ticker} - {signal} ({score:.1%})")
+            if best_mode:
+                print(f"   Mode: {best_mode} | Timing: {bandar_timing[:30]}...")
+    
+    return results
+
 
 if __name__ == "__main__":
     main()

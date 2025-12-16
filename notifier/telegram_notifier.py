@@ -97,49 +97,76 @@ class TelegramNotifier:
         entry_levels = result.get('entry_levels', {})
         reasons = result.get('reasons', [])
         patterns = result.get('patterns', {})
+        confidence = result.get('confidence', 0)
 
+        # 1. Header with Status
         emoji_map = {
+            'SUPER_ALPHA': '🚀🚀', # Double Rocket for Super Setup
             'STRONG_AURA': '🔥',
-            'WATCHLIST': '⭐',
+            'WATCHLIST': '👀',
             'POTENTIAL': '💡',
             'NONE': '❌',
         }
         emoji = emoji_map.get(signal, '📊')
+        
+        message = f"<b>{emoji} {ticker} - {signal.replace('_', ' ')}</b>\n"
+        message += "━━━━━━━━━━━━━━━━━━━━\n"
 
-        confidence = result.get('confidence', 0)
-        parameter_count = result.get('parameter_count', 0)
-        data_quality = result.get('data_quality', {})
-        quality_score = data_quality.get('quality_score', 1.0)
+        # 2. 🤖 AI Verdict (The "Analyst" View)
+        # Construct dynamic verdict string
+        verdict = "Observing..."
+        if signal == 'SUPER_ALPHA':
+            verdict = "<b>Strong Buy.</b> Confluence of Smart Money and Technical Breakout."
+        elif signal == 'STRONG_AURA':
+            verdict = "<b>Buy.</b> Strong momentum detected."
+        elif signal == 'WATCHLIST':
+            verdict = "<b>Watch.</b> Setup developing, wait for trigger."
+        
+        message += f"🤖 <b>AI Verdict:</b> {verdict}\n\n"
 
-        message = f"{emoji} {ticker} - {signal}\n"
-        message += "━━━━━━━━━━━━━━━━━━━━\n\n"
-        message += f"💰 Price: {format_currency(price)}\n"
-        message += f"📊 Score: {score:.2%}\n"
-        message += f"🎯 Confidence: {confidence:.1%}\n"
-        message += f"✅ Parameters: {parameter_count}/7\n"
-        message += f"📈 Data Quality: {quality_score:.0%}\n\n"
+        # 3. Key Metrics
+        message += f"💰 <b>Price:</b> {format_currency(price)}\n"
+        message += f"📊 <b>Score:</b> {score:.0%} | 🎯 <b>Conf:</b> {confidence:.0%}\n"
+        
+        # 4. Risk Profile
+        risk_level = "Medium"
+        if confidence > 0.8: risk_level = "Low"
+        elif confidence < 0.5: risk_level = "High"
+        message += f"⚠️ <b>Risk Profile:</b> {risk_level}\n\n"
 
-        message += "📈 Entry Levels:\n"
+        # 5. Actionable Entry Plan
+        message += "📝 <b>TRADING PLAN</b>\n"
         if entry_levels:
-            message += f"Entry: {format_currency(entry_levels.get('entry_low', 0))} - {format_currency(entry_levels.get('entry_high', 0))}\n"
-            message += f"SL: {format_currency(entry_levels.get('stop_loss', 0))}\n"
-            message += f"TP1: {format_currency(entry_levels.get('take_profit_1', 0))} (R:R {entry_levels.get('reward_risk_1', 0):.2f})\n"
-            message += f"TP2: {format_currency(entry_levels.get('take_profit_2', 0))} (R:R {entry_levels.get('reward_risk_2', 0):.2f})\n\n"
+            entry_low = entry_levels.get('entry_low', 0)
+            entry_high = entry_levels.get('entry_high', 0)
+            sl = entry_levels.get('stop_loss', 0)
+            tp1 = entry_levels.get('take_profit_1', 0)
+            tp2 = entry_levels.get('take_profit_2', 0)
+            
+            # Smart formatting
+            message += f"🔵 <b>BUY AREA:</b> {int(entry_low)} - {int(entry_high)}\n"
+            message += f"🔴 <b>STOP LOSS:</b> {int(sl)} (Crucial)\n"
+            message += f"🟢 <b>TARGET 1:</b> {int(tp1)}\n"
+            message += f"🟢 <b>TARGET 2:</b> {int(tp2)}\n\n"
 
+        # 6. Supporting Factors
         if reasons:
-            message += "✅ Reasons:\n"
-            for reason in reasons:
+            message += "✅ <b>Analysis Factors:</b>\n"
+            # Show top 5 reasons only to keep it clean
+            for reason in reasons[:5]: 
                 message += f"• {reason}\n"
+            if len(reasons) > 5:
+                message += f"• ...and {len(reasons)-5} more\n"
             message += "\n"
 
+        # 7. Pattern Highlights
         detected_patterns = [k for k, v in patterns.items() if v and (isinstance(v, bool) or (isinstance(v, dict) and v.get('detected')))]
         if detected_patterns:
-            message += "🎯 Patterns:\n"
-            for pattern in detected_patterns:
-                message += f"• {pattern.replace('_', ' ').title()}\n"
-            message += "\n"
+            message += "🧩 <b>Patterns Detected:</b> "
+            clean_patterns = [p.replace('_', ' ').title() for p in detected_patterns]
+            message += ", ".join(clean_patterns) + "\n\n"
 
-        message += f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        message += f"⏰ <i>Scanned at {datetime.now().strftime('%H:%M:%S')}</i>"
 
         return message
     
